@@ -26,39 +26,38 @@ class OrderController extends Controller
         ]);
 
         try {
-            DB::beginTransaction();
+            $order = DB::transaction(function () use ($request) {
+                // Create order
+                $order = new Order();
+                $total = 0;
 
-            // Create order
-            $order = new Order();
-            $total = 0;
+                // Calculate total and prepare items
+                $orderItems = [];
+                foreach ($request->items as $item) {
+                    $dbItem = Item::findOrFail($item['id']);
+                    $total += $dbItem->price * $item['quantity'];
+                    $orderItems[$item['id']] = [
+                        'quantity' => $item['quantity'],
+                        'price' => $dbItem->price
+                    ];
+                }
 
-            // Calculate total and prepare items
-            $orderItems = [];
-            foreach ($request->items as $item) {
-                $dbItem = Item::findOrFail($item['id']);
-                $total += $dbItem->price * $item['quantity'];
-                $orderItems[$item['id']] = [
-                    'quantity' => $item['quantity'],
-                    'price' => $dbItem->price
-                ];
-            }
+                $order->total_amount = $total;
+                $order->save();
 
-            $order->total_amount = $total;
-            $order->save();
+                // Attach items to order
+                $order->items()->attach($orderItems);
 
-            // Attach items to order
-            $order->items()->attach($orderItems);
+                // Dispatch job to process order
+               
 
-            // Dispatch job to process order
+                return $order;
+            });
             ProcessOrder::dispatch($order);
-
-            DB::commit();
-
             return redirect()->route('orders.index')
                 ->with('success', 'Order created successfully and is being processed.');
 
         } catch (\Exception $e) {
-            DB::rollBack();
             return redirect()->back()
                 ->with('error', 'Error creating order: ' . $e->getMessage());
         }

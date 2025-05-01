@@ -24,32 +24,29 @@ class ProcessOrder implements ShouldQueue
     public function handle()
     {
         try {
-            DB::beginTransaction();
+            DB::transaction(function () {
+                // Update order status to processing
+                $this->order->update(['status' => 'processing']);
 
-            // Update order status to processing
-            $this->order->update(['status' => 'processing']);
+                // Process each item in the order
+                foreach ($this->order->items as $item) {
+                    $orderItem = $item->pivot;
+                    
+                    // Check if enough stock is available
+                    if ($item->stock < $orderItem->quantity) {
+                        throw new \Exception("Insufficient stock for item: {$item->name}");
+                    }
 
-            // Process each item in the order
-            foreach ($this->order->items as $item) {
-                $orderItem = $item->pivot;
-                
-                // Check if enough stock is available
-                if ($item->stock < $orderItem->quantity) {
-                    throw new \Exception("Insufficient stock for item: {$item->name}");
+                    // Decrease stock
+                    $item->decrement('stock', $orderItem->quantity);
                 }
 
-                // Decrease stock
-                $item->decrement('stock', $orderItem->quantity);
-            }
-
-            // Mark order as completed
-            $this->order->update(['status' => 'completed']);
-
-            DB::commit();
+                // Mark order as completed
+                $this->order->update(['status' => 'completed']);
+            });
         } catch (\Exception $e) {
-            DB::rollBack();
             $this->order->update(['status' => 'failed']);
-            throw $e;
+            throw $e; // Re-throw to mark job as failed
         }
     }
 }
