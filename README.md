@@ -1,6 +1,5 @@
 # Order Processing System - Technical Documentation
 ## Made By -Kartikeya Sharma
-## System Architecture
 
 ### Entity Relationship Diagram (ERD)
 ```
@@ -57,121 +56,8 @@
 [Update Stock] ------> [Update Status]
 ```
 
-## Technical Implementation
 
-### 1. Models
-
-#### Item Model
-```php
-class Item extends Model
-{
-    protected $fillable = ['name', 'price', 'description', 'stock'];
-    
-    public function orders()
-    {
-        return $this->belongsToMany(Order::class)
-                    ->withPivot('quantity', 'price');
-    }
-}
-```
-
-#### Order Model
-```php
-class Order extends Model
-{
-    protected $fillable = ['total_amount', 'status'];
-    
-    public function items()
-    {
-        return $this->belongsToMany(Item::class)
-                    ->withPivot('quantity', 'price');
-    }
-}
-```
-
-### 2. Controllers
-
-#### OrderController
-```php
-class OrderController extends Controller
-{
-    public function store(Request $request)
-    {
-        try {
-            DB::beginTransaction();
-            
-            // Create order with items
-            $order = new Order();
-            $total = 0;
-            
-            // Calculate total and prepare items
-            $orderItems = [];
-            foreach ($request->items as $item) {
-                $dbItem = Item::findOrFail($item['id']);
-                $total += $dbItem->price * $item['quantity'];
-                $orderItems[$item['id']] = [
-                    'quantity' => $item['quantity'],
-                    'price' => $dbItem->price
-                ];
-            }
-            
-            $order->total_amount = $total;
-            $order->save();
-            
-            // Attach items
-            $order->items()->attach($orderItems);
-            
-            // Dispatch job
-            ProcessOrder::dispatch($order);
-            
-            DB::commit();
-            return redirect()->back()->with('success', 'Order created');
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
-        }
-    }
-}
-```
-
-### 3. Jobs
-
-#### ProcessOrder Job
-```php
-class ProcessOrder implements ShouldQueue
-{
-    protected $order;
-    
-    public function handle()
-    {
-        try {
-            DB::beginTransaction();
-            
-            // Update status
-            $this->order->update(['status' => 'processing']);
-            
-            // Process items
-            foreach ($this->order->items as $item) {
-                if ($item->stock < $item->pivot->quantity) {
-                    throw new \Exception("Insufficient stock");
-                }
-                
-                $item->decrement('stock', $item->pivot->quantity);
-            }
-            
-            $this->order->update(['status' => 'completed']);
-            DB::commit();
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            $this->order->update(['status' => 'failed']);
-        }
-    }
-}
-```
-
-### 4. API Endpoints
+###  API Endpoints
 
 #### Orders
 ```
@@ -187,7 +73,7 @@ PUT    /items/{id}
 DELETE /items/{id}
 ```
 
-### 5. Database Transactions
+###  Database Transactions
 
 #### Order Creation Transaction
 1. Begin transaction
@@ -205,7 +91,7 @@ DELETE /items/{id}
 5. Update order status to 'completed'
 6. Commit transaction
 
-### 6. Error Handling
+### Error Handling
 
 #### Order Creation Errors
 - Invalid input validation
@@ -217,16 +103,15 @@ DELETE /items/{id}
 - Database errors
 - Transaction failures
 
-### 7. Monitoring
+### Monitoring
 
 #### Laravel Telescope Features
 - Database queries
 - Queue jobs
 - Request/Response
 - Exceptions
-- Cache operations
 
-### 8. Security Measures
+###  Security Measures
 
 #### Data Protection
 - CSRF protection
